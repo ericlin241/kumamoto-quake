@@ -5,6 +5,7 @@ const state = {
     filteredEvents: [],
     selectedEventId: null,
     map: null,
+    tileLayer: null, // Keep track of active map tiles for theme toggling
     markers: {},
     charts: {
         timeline: null,
@@ -12,6 +13,105 @@ const state = {
     },
     currentScope: 'kumamoto-epicenter' // Default scope
 };
+
+// Theme Management State
+const themeState = {
+    current: localStorage.getItem('theme-preference') || 'system'
+};
+
+// Get map tiles based on current theme class
+function getMapTileUrl() {
+    const isLight = document.documentElement.classList.contains('light-theme');
+    return isLight 
+        ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png' 
+        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+}
+
+// Update Map tiles theme
+function updateMapTheme() {
+    if (state.tileLayer) {
+        state.tileLayer.setUrl(getMapTileUrl());
+    }
+}
+
+// Update charts styles for light/dark theme dynamically
+function updateChartsTheme() {
+    if (!state.charts.timeline || !state.charts.distribution) return;
+    
+    const isLight = document.documentElement.classList.contains('light-theme');
+    const labelColor = isLight ? '#4b5563' : '#9ca3af';
+    const gridColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const pointBorderColor = isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)';
+
+    // Update Chart 1 (Timeline)
+    state.charts.timeline.data.datasets[0].borderColor = pointBorderColor;
+    state.charts.timeline.options.scales.x.title.color = labelColor;
+    state.charts.timeline.options.scales.x.grid.color = gridColor;
+    state.charts.timeline.options.scales.y.title.color = labelColor;
+    state.charts.timeline.options.scales.y.ticks.color = labelColor;
+    state.charts.timeline.options.scales.y.grid.color = gridColor;
+    state.charts.timeline.update();
+
+    // Update Chart 2 (Distribution)
+    state.charts.distribution.options.scales.x.ticks.color = labelColor;
+    state.charts.distribution.options.scales.y.title.color = labelColor;
+    state.charts.distribution.options.scales.y.ticks.color = labelColor;
+    state.charts.distribution.options.scales.y.grid.color = gridColor;
+    state.charts.distribution.update();
+}
+
+// Apply theme class and UI updates
+function applyTheme() {
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isLight = themeState.current === 'light' || (themeState.current === 'system' && !systemDark);
+    
+    if (isLight) {
+        document.documentElement.classList.add('light-theme');
+    } else {
+        document.documentElement.classList.remove('light-theme');
+    }
+    
+    const themeBtn = document.getElementById('theme-btn');
+    if (themeBtn) {
+        const icon = themeBtn.querySelector('i');
+        const text = themeBtn.querySelector('span');
+        
+        icon.className = 'fa-solid';
+        if (themeState.current === 'system') {
+            icon.classList.add('fa-circle-half-stroke');
+            text.textContent = 'テーマ: 自動';
+        } else if (themeState.current === 'light') {
+            icon.classList.add('fa-sun');
+            text.textContent = 'テーマ: ライト';
+        } else {
+            icon.classList.add('fa-moon');
+            text.textContent = 'テーマ: ダーク';
+        }
+    }
+    
+    updateMapTheme();
+    updateChartsTheme();
+}
+
+// Cycle theme preferences: system -> light -> dark -> system
+function cycleTheme() {
+    if (themeState.current === 'system') {
+        themeState.current = 'light';
+    } else if (themeState.current === 'light') {
+        themeState.current = 'dark';
+    } else {
+        themeState.current = 'system';
+    }
+    localStorage.setItem('theme-preference', themeState.current);
+    applyTheme();
+}
+
+// Listen to OS system color scheme changes dynamically
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (themeState.current === 'system') {
+        applyTheme();
+    }
+});
 
 // Shindo Intensity Map Info (Japanese Version)
 const SHINDO_CONFIG = {
@@ -82,8 +182,8 @@ function initMap() {
             attributionControl: false
         }).setView([32.78, 130.73], 9);
 
-        // Add CartoDB Dark Matter tile layer
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        // Add dynamic tile layer based on active theme
+        state.tileLayer = L.tileLayer(getMapTileUrl(), {
             maxZoom: 19
         }).addTo(state.map);
 
@@ -316,7 +416,7 @@ async function loadData(background = false) {
 
     statusDot.classList.add('syncing');
     syncText.textContent = '気象庁の最新地震データを同期しています...';
-    refreshIcon.classList.add('spin');
+    if (refreshIcon) refreshIcon.classList.add('spin');
 
     // Double-fallback URL list: tries local server first, then live P2Pquake (300 events), then Wolfx API (50 events), then static cached JSON file
     const isLocalFile = window.location.protocol === 'file:';
@@ -401,7 +501,7 @@ async function loadData(background = false) {
             `;
         }
     }
-    refreshIcon.classList.remove('spin');
+    if (refreshIcon) refreshIcon.classList.remove('spin');
 }
 
 // Apply Filters to data based on user input state
@@ -832,9 +932,6 @@ function exportCSV() {
 
 // Bind Event Listeners
 function bindEvents() {
-    // Refresh / Live Sync button
-    document.getElementById('refresh-btn').addEventListener('click', loadData);
-
     // Filters
     
     document.getElementById('shindo-filter').addEventListener('change', applyFilters);
@@ -865,13 +962,25 @@ function bindEvents() {
 
     // CSV Export button
     document.getElementById('btn-export').addEventListener('click', exportCSV);
+
+    // Theme Toggle Button
+    const themeBtn = document.getElementById('theme-btn');
+    if (themeBtn) {
+        themeBtn.addEventListener('click', cycleTheme);
+    }
 }
 
 // App Initialization
 window.addEventListener('DOMContentLoaded', async () => {
+    // Initialise theme classes and buttons
+    applyTheme();
+
     initMap();
     initCharts();
     bindEvents();
+
+    // Refresh charts colors to match active theme
+    updateChartsTheme();
 
     // If we have statically pre-loaded data, render it immediately to avoid blank screen/loading hang
     if (state.allEvents && state.allEvents.length > 0) {

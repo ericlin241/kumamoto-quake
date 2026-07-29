@@ -22,6 +22,19 @@
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="style.css">
+    
+    <!-- Theme Preloader to prevent white flash in dark mode -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme-preference') || 'system';
+            const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (savedTheme === 'light' || (savedTheme === 'system' && !systemDark)) {
+                document.documentElement.classList.add('light-theme');
+            } else {
+                document.documentElement.classList.remove('light-theme');
+            }
+        })();
+    </script>
 </head>
 <body>
     <header>
@@ -31,7 +44,6 @@
                 <h1>KUMAMOTO QUAKE ANALYTICS</h1>
                 <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px;">熊本県および周辺地域における地震活動の観測・統計ダッシュボード</p>
             </div>
-            <span>V1.0 LIVE</span>
         </div>
         
         <div class="sync-status">
@@ -39,9 +51,9 @@
                 <div class="status-dot" id="status-dot"></div>
                 <span id="sync-text">データ読込中...</span>
             </div>
-            <button class="btn-refresh" id="refresh-btn" title="気象庁から最新の地震データを同期します">
-                <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i>
-                最新データの同期
+            <button class="btn-theme" id="theme-btn" title="クリックしてテーマを変更します（自動 → ライト → ダーク）">
+                <i class="fa-solid fa-circle-half-stroke"></i>
+                <span id="theme-text">テーマ: 自動</span>
             </button>
         </div>
     </header>
@@ -85,7 +97,7 @@
                 <label>震央名の検索 (Search Location)</label>
                 <div style="position: relative; display: flex; align-items: center;">
                     <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; color: var(--text-muted); font-size: 0.9rem;"></i>
-                    <input type="text" id="search-filter" placeholder="震央名で絞り込み (例: 熊本、阿蘇、天草...)" style="width: 100%; padding-left: 2rem; background: #1f2937; border: 1px solid var(--card-border); color: #fff; padding: 0.6rem 0.6rem 0.6rem 2.2rem; border-radius: 6px; outline: none; font-size: 0.9rem;">
+                    <input type="text" id="search-filter" placeholder="震央名で絞り込み (例: 熊本、阿蘇、天草...)">
                 </div>
             </div>
         </section>
