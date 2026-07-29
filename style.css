@@ -664,3 +664,153 @@ table.quake-table tbody tr.selected {
 .leaflet-popup-quake-row span.val {
     font-weight: 600;
 }
+
+/* Mobile Responsive Optimizations (under 768px) */
+@media (max-width: 768px) {
+    header {
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1rem;
+        text-align: center;
+        align-items: center;
+    }
+    
+    .brand {
+        flex-direction: column;
+        gap: 0.5rem;
+        text-align: center;
+    }
+    
+    .brand h1 {
+        font-size: 1.1rem;
+    }
+    
+    .brand p {
+        font-size: 0.7rem;
+    }
+    
+    .sync-status {
+        width: 100%;
+        flex-direction: column;
+        gap: 0.75rem;
+        align-items: center;
+    }
+    
+    .status-indicator {
+        font-size: 0.8rem;
+    }
+    
+    .btn-refresh {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    main {
+        padding: 0.75rem;
+        gap: 1rem;
+    }
+    
+    /* Controls Panel mobile reflow */
+    .controls-card {
+        padding: 1rem;
+        gap: 1rem;
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .control-group {
+        width: 100%;
+        min-width: 100%;
+        flex: unset;
+    }
+    
+    .scope-selector {
+        min-width: 100%;
+        flex-direction: column;
+        gap: 4px;
+        background: transparent;
+        border: none;
+        padding: 0;
+    }
+    
+    .scope-btn {
+        background: #1f2937;
+        border: 1px solid var(--card-border);
+        border-radius: 6px;
+        padding: 0.6rem;
+    }
+    
+    .scope-btn.active {
+        border-color: var(--accent-cyan);
+    }
+    
+    /* Stats summary stack */
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+    
+    .kpi-card {
+        padding: 1rem;
+    }
+    
+    .kpi-value {
+        font-size: 1.6rem;
+    }
+    
+    /* Visuals and panels size */
+    .visuals-grid {
+        height: auto;
+    }
+    
+    .map-container {
+        height: 350px !important;
+    }
+    
+    .feed-container {
+        height: 300px !important;
+    }
+    
+    .panel-header {
+        padding: 0.75rem 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+    
+    .panel-header h2 {
+        font-size: 0.9rem;
+    }
+    
+    /* Charts wrapper sizes */
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .chart-wrapper {
+        height: 250px;
+        padding: 0.5rem;
+    }
+    
+    /* Table padding */
+    table.quake-table th, 
+    table.quake-table td {
+        padding: 0.6rem 0.75rem;
+        font-size: 0.8rem;
+    }
+}
+
+/* Extra small mobile screens (under 480px) */
+@media (max-width: 480px) {
+    .brand h1 {
+        font-size: 1rem;
+    }
+    
+    .kpi-value {
+        font-size: 1.4rem;
+    }
+    
+    .map-container {
+        height: 280px !important;
+    }
+}
