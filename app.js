@@ -544,8 +544,8 @@ function renderFeed() {
         return;
     }
 
-    // Limit to top 100 in feed to avoid browser lag
-    const itemsToShow = state.filteredEvents.slice(0, 100);
+    // Show all filtered events to present the complete JMA dataset
+    const itemsToShow = state.filteredEvents;
 
     feedList.innerHTML = itemsToShow.map(item => {
         const isSelected = item.eid === state.selectedEventId ? 'active' : '';
