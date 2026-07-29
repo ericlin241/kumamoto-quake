@@ -200,16 +200,21 @@ function translateWolfxEvent(key, wolfxEvent) {
     // Convert time_full (JST, e.g. "2026/07/29 11:37:00") to standard ISO-like timezone string
     const jstTime = wolfxEvent.time_full ? wolfxEvent.time_full.replace(/\//g, '-') + '+09:00' : new Date().toISOString();
     
-    // Convert depth string ("10km" -> -10000 meters)
-    const depthNum = wolfxEvent.depth ? parseFloat(wolfxEvent.depth) : 0;
+    // Convert depth string (e.g. "10km" -> -10000 meters, "ごく浅い" -> 0 meters, etc.)
+    let depthNum = parseFloat(wolfxEvent.depth);
+    if (isNaN(depthNum)) depthNum = 0; // fallback for "ごく浅い" or other non-numeric depths
     const depthMeters = -(depthNum * 1000);
     
     // Format JMA coordinates code (e.g. "+32.4+130.5-10000/")
-    const lat = parseFloat(wolfxEvent.latitude) || 0;
-    const lon = parseFloat(wolfxEvent.longitude) || 0;
-    const latSign = lat >= 0 ? '+' : '';
-    const lonSign = lon >= 0 ? '+' : '';
-    const cod = `${latSign}${lat.toFixed(1)}${lonSign}${lon.toFixed(1)}${depthMeters.toFixed(0)}/`;
+    const lat = parseFloat(wolfxEvent.latitude);
+    const lon = parseFloat(wolfxEvent.longitude);
+    let cod = '';
+    
+    if (!isNaN(lat) && !isNaN(lon)) {
+        const latSign = lat >= 0 ? '+' : '';
+        const lonSign = lon >= 0 ? '+' : '';
+        cod = `${latSign}${lat.toFixed(1)}${lonSign}${lon.toFixed(1)}${depthMeters.toFixed(0)}/`;
+    }
     
     const anm = wolfxEvent.location || '';
     let en_anm = anm;
@@ -324,7 +329,6 @@ async function loadData(background = false) {
 
 // Apply Filters to data based on user input state
 function applyFilters() {
-    const minMag = parseFloat(document.getElementById('mag-filter').value);
     const minShindoVal = document.getElementById('shindo-filter').value;
     const minShindoRank = getShindoRank(minShindoVal);
     const searchQuery = document.getElementById('search-filter').value.toLowerCase().trim();
@@ -342,11 +346,6 @@ function applyFilters() {
             if (!feltInKumamoto) return false;
         }
         // If scope is 'japan-all', we display all earthquakes (no scope filter)
-
-        // 2. Magnitude Filter
-        const mag = parseFloat(item.mag);
-        if (isNaN(mag) && minMag > 1.0) return false; // Ignore events without magnitude if minimum filter is active
-        if (!isNaN(mag) && mag < minMag) return false;
 
         // 3. Shindo Intensity Filter
         const shindoRank = getShindoRank(item.maxi);
@@ -463,6 +462,7 @@ function renderMap() {
     state.filteredEvents.forEach(item => {
         const coords = parseCoordinates(item.cod);
         if (!coords) return; // Skip if no coordinate data
+        if (coords.lat === 0 && coords.lon === 0) return; // Skip invalid [0, 0] coordinates
 
         const mag = parseFloat(item.mag) || 2.0;
         
@@ -759,10 +759,6 @@ function bindEvents() {
     document.getElementById('refresh-btn').addEventListener('click', loadData);
 
     // Filters
-    document.getElementById('mag-filter').addEventListener('input', (e) => {
-        document.getElementById('mag-val').textContent = parseFloat(e.target.value).toFixed(1);
-        applyFilters();
-    });
     
     document.getElementById('shindo-filter').addEventListener('change', applyFilters);
     document.getElementById('search-filter').addEventListener('input', applyFilters);
