@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>熊本県地震活動分析ダッシュボード | Kumamoto Seismic Activity Dashboard</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Local Leaflet.js Map CSS & JS -->
+    <link rel="stylesheet" href="leaflet.css">
+    <script src="leaflet.js"></script>
+    
+    <!-- Local Chart.js -->
+    <script src="chart.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <i class="fa-solid fa-house-crack"></i>
+            <div>
+                <h1>KUMAMOTO QUAKE ANALYTICS</h1>
+                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px;">熊本県および周辺地域における地震活動の観測・統計ダッシュボード</p>
+            </div>
+            <span>V1.0 LIVE</span>
+        </div>
+        
+        <div class="sync-status">
+            <div class="status-indicator">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="sync-text">データ読込中...</span>
+            </div>
+            <button class="btn-refresh" id="refresh-btn" title="気象庁から最新の地震データを同期します">
+                <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i>
+                最新データの同期
+            </button>
+        </div>
+    </header>
+    
+    <main>
+        <!-- Interactive Controls -->
+        <section class="controls-card">
+            <div class="control-group">
+                <label>分析範囲 (Scope)</label>
+                <div class="scope-selector">
+                    <button class="scope-btn active" data-scope="kumamoto-epicenter" id="scope-epi">
+                        熊本震源 <span style="font-size: 0.7rem; font-weight: normal; display: block; opacity: 0.8;">Epicenter</span>
+                    </button>
+                    <button class="scope-btn" data-scope="kumamoto-felt" id="scope-felt">
+                        熊本有感 <span style="font-size: 0.7rem; font-weight: normal; display: block; opacity: 0.8;">Felt in Kumamoto</span>
+                    </button>
+                    <button class="scope-btn" data-scope="japan-all" id="scope-all">
+                        日本全国 <span style="font-size: 0.7rem; font-weight: normal; display: block; opacity: 0.8;">All Japan</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>最小規模 (Min Magnitude)</label>
+                <div class="range-slider-container">
+                    <input type="range" id="mag-filter" min="1.0" max="7.0" step="0.1" value="1.0">
+                    <span id="mag-val">1.0</span>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>最小震度 (Min Intensity)</label>
+                <select id="shindo-filter">
+                    <option value="">すべての震度</option>
+                    <option value="1">震度 1 以上</option>
+                    <option value="2">震度 2 以上</option>
+                    <option value="3">震度 3 以上</option>
+                    <option value="4">震度 4 以上</option>
+                    <option value="5-">震度 5弱 以上</option>
+                    <option value="5+">震度 5強 以上</option>
+                    <option value="6-">震度 6弱 以上</option>
+                    <option value="6+">震度 6強 以上</option>
+                    <option value="7">震度 7</option>
+                </select>
+            </div>
+            
+            <div class="control-group" style="flex: 1.5;">
+                <label>震央名の検索 (Search Location)</label>
+                <div style="position: relative; display: flex; align-items: center;">
+                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; color: var(--text-muted); font-size: 0.9rem;"></i>
+                    <input type="text" id="search-filter" placeholder="震央名で絞り込み (例: 熊本、阿蘇、天草...)" style="width: 100%; padding-left: 2rem; background: #1f2937; border: 1px solid var(--card-border); color: #fff; padding: 0.6rem 0.6rem 0.6rem 2.2rem; border-radius: 6px; outline: none; font-size: 0.9rem;">
+                </div>
+            </div>
+        </section>
+        
+        <!-- Statistics Summary Grid -->
+        <section class="stats-grid">
+            <div class="kpi-card total-quakes">
+                <div class="kpi-info">
+                    <span class="kpi-label">地震発生総数 / Total Events</span>
+                    <div class="kpi-value" id="kpi-count">--</div>
+                    <span class="kpi-desc" id="kpi-count-sub">条件に合致する地震回数</span>
+                </div>
+                <div class="kpi-icon"><i class="fa-solid fa-list-ol"></i></div>
+            </div>
+            
+            <div class="kpi-card max-mag">
+                <div class="kpi-info">
+                    <span class="kpi-label">最大マグニチュード / Max Magnitude</span>
+                    <div class="kpi-value" id="kpi-max-mag">--<span>M</span></div>
+                    <span class="kpi-desc" id="kpi-max-mag-loc">該当データなし</span>
+                </div>
+                <div class="kpi-icon"><i class="fa-solid fa-burst"></i></div>
+            </div>
+            
+            <div class="kpi-card max-shindo">
+                <div class="kpi-info">
+                    <span class="kpi-label">最大観測震度 / Max Intensity</span>
+                    <div class="kpi-value" id="kpi-max-shindo">--</div>
+                    <span class="kpi-desc" id="kpi-max-shindo-time">該当データなし</span>
+                </div>
+                <div class="kpi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            </div>
+            
+            <div class="kpi-card avg-depth">
+                <div class="kpi-info">
+                    <span class="kpi-label">平均震源深さ / Avg Depth</span>
+                    <div class="kpi-value" id="kpi-avg-depth">--<span>km</span></div>
+                    <span class="kpi-desc" id="kpi-avg-depth-sub">震源深さが決定された地震のみ</span>
+                </div>
+                <div class="kpi-icon"><i class="fa-solid fa-circle-down"></i></div>
+            </div>
+        </section>
+        
+        <!-- Map and Event List -->
+        <section class="visuals-grid">
+            <!-- Leaflet Map Card -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-map-location-dot"></i> 震央分布マップ / Earthquake Epicenter Map</h2>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">円の半径はマグニチュード (M)、色は最大震度を示します</span>
+                </div>
+                <div class="map-container" id="map"></div>
+            </div>
+            
+            <!-- Real-time Event Feed -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-rss"></i> リアルタイム地震速報 / Event Feed</h2>
+                    <span id="feed-count" style="font-size: 0.75rem; color: var(--text-secondary); background: rgba(255, 255, 255, 0.05); padding: 0.15rem 0.4rem; border-radius: 4px;">0 件</span>
+                </div>
+                <div class="feed-container">
+                    <div class="event-feed-list" id="event-feed">
+                        <!-- Event items inserted here -->
+                        <div class="text-center" style="padding: 2rem; color: var(--text-muted);">
+                            <i class="fa-solid fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+                            <p>地震データを読み込んでいます...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Advanced Chart Panel -->
+        <section class="charts-grid">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-chart-line"></i> 時系列の地震規模（マグニチュード）分布 (Magnitude vs. Time Sequence)</h2>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="timelineChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-chart-bar"></i> 主な震央別の地震発生回数（上位10地域） (Top 10 Epicenters)</h2>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="distributionChart"></canvas>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Detailed Data Table -->
+        <section class="panel-card table-panel">
+            <div class="panel-header">
+                <h2><i class="fa-solid fa-table-list"></i> 地震観測データ一覧 / Seismic Data Table</h2>
+                <button class="btn-csv" id="btn-export">
+                    <i class="fa-solid fa-file-csv"></i> CSV形式でエクスポート
+                </button>
+            </div>
+            <div class="table-wrapper">
+                <table class="quake-table" id="quake-table">
+                    <thead>
+                        <tr>
+                            <th>発生日時 (Time)</th>
+                            <th>震央地名 (Hypocenter)</th>
+                            <th class="text-center">M</th>
+                            <th class="text-center">最大震度</th>
+                            <th class="text-center">深さ</th>
+                            <th>震源座標 (Coordinates)</th>
+                            <th style="width: 80px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <tr>
+                            <td colspan="7" class="text-center" style="color: var(--text-muted); padding: 3rem;">
+                                <i class="fa-solid fa-spinner fa-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block; margin-left: auto; margin-right: auto;"></i>
+                                データ取得中...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+    
+    <footer style="max-width: 1600px; margin: 0 auto; padding: 0 1.5rem; margin-top: 1rem; display: flex; justify-content: center; align-items: center; font-size: 0.8rem; color: var(--text-muted);">
+        <p>© 2026 熊本県地震活動分析ダッシュボード. データ元: 気象庁 (JMA)</p>
+    </footer>
+
+    <!-- Static cache script for offline and local protocol compatibility -->
+    <script src="quake_data.js"></script>
+    
+    <!-- Custom App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+name: Update Earthquake Data
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # Runs every 30 minutes automatically
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run update script
+        run: node update_data.js
+
+      - name: Commit and push updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add quake_cache.json quake_data.js
+          git diff --quiet && git diff --staged --quiet || (git commit -m "auto: update JMA earthquake data" && git push)
