@@ -195,6 +195,64 @@ function initCharts() {
     }
 }
 
+// Translate P2Pquake API event structure to match JMA schema
+function translateP2PquakeEvent(p2pEvent) {
+    const eq = p2pEvent.earthquake || {};
+    const hypo = eq.hypocenter || {};
+    
+    // Parse time ("2026/07/29 12:08:00" -> "2026-07-29T12:08:00+09:00")
+    let at = new Date().toISOString();
+    if (eq.time) {
+        at = eq.time.replace(/\//g, '-').replace(' ', 'T') + '+09:00';
+    }
+    
+    const depthNum = parseFloat(hypo.depth);
+    const depthMeters = isNaN(depthNum) ? 0 : -(depthNum * 1000);
+    const lat = parseFloat(hypo.latitude);
+    const lon = parseFloat(hypo.longitude);
+    let cod = '';
+    
+    if (!isNaN(lat) && !isNaN(lon)) {
+        const latSign = lat >= 0 ? '+' : '';
+        const lonSign = lon >= 0 ? '+' : '';
+        cod = `${latSign}${lat.toFixed(1)}${lonSign}${lon.toFixed(1)}${depthMeters.toFixed(0)}/`;
+    }
+    
+    const scaleMap = {
+        10: '1', 20: '2', 30: '3', 40: '4',
+        45: '5-', 50: '5+', 55: '6-', 60: '6+', 70: '7'
+    };
+    const maxi = scaleMap[eq.maxScale] || '';
+    
+    // Check if felt in Kumamoto (pref: '熊本県')
+    const hasKumamoto = p2pEvent.points && p2pEvent.points.some(pt => pt.pref && pt.pref.includes('熊本'));
+    const intensityPref = hasKumamoto ? [{ code: '43', maxi: maxi, city: [] }] : [];
+    
+    const anm = hypo.name || '';
+    let en_anm = anm;
+    if (anm.includes('熊本県熊本地方')) en_anm = 'Kumamoto Region, Kumamoto Prefecture';
+    else if (anm.includes('熊本県天草・芦北地方')) en_anm = 'Amakusa and Ashikita Region, Kumamoto Prefecture';
+    else if (anm.includes('熊本県阿蘇地方')) en_anm = 'Aso Region, Kumamoto Prefecture';
+
+    return {
+        ctt: p2pEvent.id,
+        eid: p2pEvent.id,
+        rdt: at,
+        ttl: '震源・震度情報',
+        ift: '発表',
+        ser: '1',
+        at: at,
+        anm: anm,
+        acd: '',
+        cod: cod,
+        mag: hypo.magnitude !== undefined && hypo.magnitude !== null ? hypo.magnitude.toString() : '',
+        maxi: maxi,
+        int: intensityPref,
+        en_ttl: 'Earthquake and Seismic Intensity Information',
+        en_anm: en_anm
+    };
+}
+
 // Translate Wolfx JMA API event structure to match JMA's own schema
 function translateWolfxEvent(key, wolfxEvent) {
     // Convert time_full (JST, e.g. "2026/07/29 11:37:00") to standard ISO-like timezone string
@@ -260,11 +318,11 @@ async function loadData(background = false) {
     syncText.textContent = '気象庁の最新地震データを同期しています...';
     refreshIcon.classList.add('spin');
 
-    // Double-fallback URL list: tries local server first, then live Wolfx JMA API (CORS enabled), then static cached JSON file
+    // Double-fallback URL list: tries local server first, then live P2Pquake (300 events), then Wolfx API (50 events), then static cached JSON file
     const isLocalFile = window.location.protocol === 'file:';
     const urls = isLocalFile 
-        ? ['quake_cache.json', '/api/quake', 'https://api.wolfx.jp/jma_eqlist.json'] 
-        : ['/api/quake', 'https://api.wolfx.jp/jma_eqlist.json', 'quake_cache.json'];
+        ? ['quake_cache.json', '/api/quake', 'P2PQUAKE_API', 'https://api.wolfx.jp/jma_eqlist.json'] 
+        : ['/api/quake', 'P2PQUAKE_API', 'https://api.wolfx.jp/jma_eqlist.json', 'quake_cache.json'];
 
     let success = false;
     let lastError = null;
@@ -272,25 +330,44 @@ async function loadData(background = false) {
     for (const url of urls) {
         try {
             console.log(`Attempting to fetch data from: ${url}`);
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const fetchedData = await response.json();
-            
             let eventList = [];
-            if (url.includes('wolfx.jp')) {
-                // Wolfx JMA list is an object of objects {"No1": {...}, "No2": {...}}
-                // We convert it to a sorted array matching our schema
-                eventList = Object.values(fetchedData).map((item, idx) => translateWolfxEvent(idx, item));
+
+            if (url === 'P2PQUAKE_API') {
+                console.log('Fetching JMA history from P2Pquake API (300 events)...');
+                const p2pUrls = [
+                    'https://api.p2pquake.net/v2/history?codes=551&limit=100&offset=0',
+                    'https://api.p2pquake.net/v2/history?codes=551&limit=100&offset=100',
+                    'https://api.p2pquake.net/v2/history?codes=551&limit=100&offset=200'
+                ];
+                const responses = await Promise.all(p2pUrls.map(u => fetch(u)));
+                const pagesData = await Promise.all(responses.map(res => {
+                    if (!res.ok) throw new Error(`P2Pquake HTTP error! status: ${res.status}`);
+                    return res.json();
+                }));
+                eventList = pagesData.flat().map(translateP2PquakeEvent);
             } else {
-                eventList = fetchedData;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const fetchedData = await response.json();
+                
+                if (url.includes('wolfx.jp')) {
+                    // Wolfx JMA list is an object of objects {"No1": {...}, "No2": {...}}
+                    // We convert it to a sorted array matching our schema
+                    eventList = Object.values(fetchedData).map((item, idx) => translateWolfxEvent(idx, item));
+                } else {
+                    eventList = fetchedData;
+                }
             }
 
             if (Array.isArray(eventList) && eventList.length > 0) {
                 state.allEvents = eventList;
                 success = true;
-                const sourceLabel = url.includes('wolfx') ? '気象庁連携API (リアルタイム)' : url;
+                let sourceLabel = url;
+                if (url === 'P2PQUAKE_API') sourceLabel = 'P2P地震情報 API (日本全国300件)';
+                else if (url.includes('wolfx')) sourceLabel = '気象庁連携API (リアルタイム50件)';
+                
                 syncText.textContent = `更新完了 (データ元: ${sourceLabel}, 総データ数: ${state.allEvents.length} 件)`;
                 console.log(`Loaded ${state.allEvents.length} events from ${url}`);
                 break;
