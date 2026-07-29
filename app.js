@@ -513,7 +513,7 @@ function renderMap() {
         
         // Zoom/highlight on click
         marker.on('click', () => {
-            selectEvent(item.eid);
+            selectEvent(item.eid, false, 'map');
         });
 
         state.markers[item.eid] = marker;
@@ -556,7 +556,7 @@ function renderFeed() {
         const depth = coords ? `${coords.depthKm} km` : 'なし';
 
         return `
-            <div class="event-item ${isSelected}" data-eid="${item.eid}" onclick="selectEvent('${item.eid}', true)">
+            <div class="event-item ${isSelected}" data-eid="${item.eid}" onclick="selectEvent('${item.eid}', true, 'feed')">
                 <div class="event-meta">
                     <span class="event-time">${formatTime(item.at)}</span>
                     <div class="event-badges">
@@ -649,7 +649,7 @@ function renderTable() {
         const isSelected = item.eid === state.selectedEventId ? 'selected' : '';
 
         return `
-            <tr class="${isSelected}" data-eid="${item.eid}" onclick="selectEvent('${item.eid}', true)">
+            <tr class="${isSelected}" data-eid="${item.eid}" onclick="selectEvent('${item.eid}', true, 'table')">
                 <td style="font-weight: 500;">${formatTime(item.at)}</td>
                 <td style="font-weight: 600;">${item.anm || item.en_anm}</td>
                 <td class="text-center" style="font-family: 'Orbitron', sans-serif; font-weight: 700; color: var(--accent-cyan);">M ${item.mag || '--'}</td>
@@ -671,15 +671,17 @@ function renderTable() {
 }
 
 // Select/Focus an earthquake event on the map & list
-function selectEvent(eid, flyToMap = false) {
+function selectEvent(eid, flyToMap = false, source = null) {
     state.selectedEventId = eid;
 
     // Highlight row in table
     document.querySelectorAll('table.quake-table tbody tr').forEach(row => {
         if (row.getAttribute('data-eid') === eid) {
             row.classList.add('selected');
-            // Scroll to it in table wrapper if not visible
-            row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Scroll to it in table wrapper if not visible, ONLY if triggered from table interaction itself
+            if (source === 'table') {
+                row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         } else {
             row.classList.remove('selected');
         }
@@ -689,7 +691,10 @@ function selectEvent(eid, flyToMap = false) {
     document.querySelectorAll('.event-item').forEach(item => {
         if (item.getAttribute('data-eid') === eid) {
             item.classList.add('active');
-            item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Scroll to it in feed container, ONLY if triggered from map/elsewhere (if clicked in feed, it's already visible)
+            if (source !== 'feed') {
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         } else {
             item.classList.remove('active');
         }
