@@ -195,6 +195,56 @@ function initCharts() {
     }
 }
 
+// Translate Wolfx JMA API event structure to match JMA's own schema
+function translateWolfxEvent(key, wolfxEvent) {
+    // Convert time_full (JST, e.g. "2026/07/29 11:37:00") to standard ISO-like timezone string
+    const jstTime = wolfxEvent.time_full ? wolfxEvent.time_full.replace(/\//g, '-') + '+09:00' : new Date().toISOString();
+    
+    // Convert depth string ("10km" -> -10000 meters)
+    const depthNum = wolfxEvent.depth ? parseFloat(wolfxEvent.depth) : 0;
+    const depthMeters = -(depthNum * 1000);
+    
+    // Format JMA coordinates code (e.g. "+32.4+130.5-10000/")
+    const lat = parseFloat(wolfxEvent.latitude) || 0;
+    const lon = parseFloat(wolfxEvent.longitude) || 0;
+    const latSign = lat >= 0 ? '+' : '';
+    const lonSign = lon >= 0 ? '+' : '';
+    const cod = `${latSign}${lat.toFixed(1)}${lonSign}${lon.toFixed(1)}${depthMeters.toFixed(0)}/`;
+    
+    const anm = wolfxEvent.location || '';
+    let en_anm = anm;
+    if (anm.includes('熊本県熊本地方')) en_anm = 'Kumamoto Region, Kumamoto Prefecture';
+    else if (anm.includes('熊本県天草・芦北地方')) en_anm = 'Amakusa and Ashikita Region, Kumamoto Prefecture';
+    else if (anm.includes('熊本県阿蘇地方')) en_anm = 'Aso Region, Kumamoto Prefecture';
+
+    let maxi = wolfxEvent.shindo || '';
+    if (maxi === '5弱') maxi = '5-';
+    if (maxi === '5強') maxi = '5+';
+    if (maxi === '6弱') maxi = '6-';
+    if (maxi === '6強') maxi = '6+';
+
+    // Estimate prefecture code (43 = Kumamoto) if epicenter is in Kumamoto
+    const intensityPref = anm.includes('熊本') ? [{ code: '43', maxi: maxi, city: [] }] : [];
+
+    return {
+        ctt: wolfxEvent.EventID,
+        eid: wolfxEvent.EventID,
+        rdt: jstTime,
+        ttl: wolfxEvent.Title || '震源・震度情報',
+        ift: '発表',
+        ser: '1',
+        at: jstTime,
+        anm: anm,
+        acd: '',
+        cod: cod,
+        mag: wolfxEvent.magnitude || '',
+        maxi: maxi,
+        int: intensityPref,
+        en_ttl: 'Earthquake and Seismic Intensity Information',
+        en_anm: en_anm
+    };
+}
+
 // Fetch Earthquake Data from server API proxy with double-fallback URL checking
 async function loadData(background = false) {
     const statusDot = document.getElementById('status-dot');
@@ -205,9 +255,11 @@ async function loadData(background = false) {
     syncText.textContent = '気象庁の最新地震データを同期しています...';
     refreshIcon.classList.add('spin');
 
-    // Double-fallback URL list: prioritizes relative cache JSON if loaded via local file protocol
+    // Double-fallback URL list: tries local server first, then live Wolfx JMA API (CORS enabled), then static cached JSON file
     const isLocalFile = window.location.protocol === 'file:';
-    const urls = isLocalFile ? ['quake_cache.json', '/api/quake'] : ['/api/quake', 'quake_cache.json'];
+    const urls = isLocalFile 
+        ? ['quake_cache.json', '/api/quake', 'https://api.wolfx.jp/jma_eqlist.json'] 
+        : ['/api/quake', 'https://api.wolfx.jp/jma_eqlist.json', 'quake_cache.json'];
 
     let success = false;
     let lastError = null;
@@ -220,10 +272,21 @@ async function loadData(background = false) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const fetchedData = await response.json();
-            if (Array.isArray(fetchedData) && fetchedData.length > 0) {
-                state.allEvents = fetchedData;
+            
+            let eventList = [];
+            if (url.includes('wolfx.jp')) {
+                // Wolfx JMA list is an object of objects {"No1": {...}, "No2": {...}}
+                // We convert it to a sorted array matching our schema
+                eventList = Object.values(fetchedData).map((item, idx) => translateWolfxEvent(idx, item));
+            } else {
+                eventList = fetchedData;
+            }
+
+            if (Array.isArray(eventList) && eventList.length > 0) {
+                state.allEvents = eventList;
                 success = true;
-                syncText.textContent = `更新完了 (データ元: ${url}, 総データ数: ${state.allEvents.length} 件)`;
+                const sourceLabel = url.includes('wolfx') ? '気象庁連携API (リアルタイム)' : url;
+                syncText.textContent = `更新完了 (データ元: ${sourceLabel}, 総データ数: ${state.allEvents.length} 件)`;
                 console.log(`Loaded ${state.allEvents.length} events from ${url}`);
                 break;
             }
@@ -742,4 +805,10 @@ window.addEventListener('DOMContentLoaded', async () => {
         // Otherwise, fetch normally and show full loading error if it fails
         await loadData(false);
     }
+
+    // Live auto-refresh: Automatically poll for new earthquake data every 60 seconds
+    setInterval(async () => {
+        console.log('Performing live background auto-refresh...');
+        await loadData(true);
+    }, 60000);
 });
