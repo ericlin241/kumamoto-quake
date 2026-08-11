@@ -14,6 +14,47 @@ const state = {
     currentScope: 'kumamoto-epicenter' // Default scope
 };
 
+const SCOPE_LABELS = {
+    'kumamoto-epicenter': '熊本県内が震央',
+    'kumamoto-felt': '熊本県内で観測',
+    'japan-all': '日本全国'
+};
+
+let toastTimer = null;
+
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    })[char]);
+}
+
+function debounce(callback, delay = 180) {
+    let timer;
+    return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => callback(...args), delay);
+    };
+}
+
+function showToast(message) {
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 2800);
+}
+
+function updateLastUpdated() {
+    const target = document.getElementById('last-updated');
+    if (!target) return;
+    const latest = state.allEvents
+        .map(item => new Date(item.at))
+        .filter(date => !Number.isNaN(date.getTime()))
+        .sort((a, b) => b - a)[0];
+    target.textContent = latest ? `${formatTime(latest.toISOString()).slice(0, 16)} JST` : '取得時刻不明';
+}
+
 // Theme Management State
 const themeState = {
     current: localStorage.getItem('theme-preference') || 'system'
@@ -155,8 +196,16 @@ function formatTime(isoStr) {
     if (!isoStr) return '--';
     const date = new Date(isoStr);
     if (isNaN(date.getTime())) return isoStr;
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    const parts = new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hourCycle: 'h23'
+    }).formatToParts(date).reduce((result, part) => {
+        result[part.type] = part.value;
+        return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 // Initialize Leaflet Map (with try-catch safety)
@@ -408,7 +457,7 @@ function translateWolfxEvent(key, wolfxEvent) {
     };
 }
 
-// Fetch Earthquake Data from server API proxy with double-fallback URL checking
+// Fetch earthquake data from the same-origin cache, with live API fallbacks.
 async function loadData(background = false) {
     const statusDot = document.getElementById('status-dot');
     const syncText = document.getElementById('sync-text');
@@ -419,10 +468,7 @@ async function loadData(background = false) {
     if (refreshIcon) refreshIcon.classList.add('spin');
 
     // Double-fallback URL list: tries local server first, then live P2Pquake (300 events), then Wolfx API (50 events), then static cached JSON file
-    const isLocalFile = window.location.protocol === 'file:';
-    const urls = isLocalFile 
-        ? ['quake_cache.json', '/api/quake', 'P2PQUAKE_API', 'https://api.wolfx.jp/jma_eqlist.json'] 
-        : ['/api/quake', 'P2PQUAKE_API', 'https://api.wolfx.jp/jma_eqlist.json', 'quake_cache.json'];
+    const urls = ['quake_cache.json', 'P2PQUAKE_API', 'https://api.wolfx.jp/jma_eqlist.json'];
 
     let success = false;
     let lastError = null;
@@ -465,10 +511,12 @@ async function loadData(background = false) {
                 state.allEvents = eventList;
                 success = true;
                 let sourceLabel = url;
+                if (url === 'quake_cache.json') sourceLabel = '気象庁データキャッシュ';
                 if (url === 'P2PQUAKE_API') sourceLabel = 'P2P地震情報 API (日本全国300件)';
                 else if (url.includes('wolfx')) sourceLabel = '気象庁連携API (リアルタイム50件)';
                 
-                syncText.textContent = `更新完了 (データ元: ${sourceLabel}, 総データ数: ${state.allEvents.length} 件)`;
+                syncText.textContent = `更新完了・${state.allEvents.length}件`;
+                syncText.title = `データ元: ${sourceLabel} / 総データ数: ${state.allEvents.length}件`;
                 console.log(`Loaded ${state.allEvents.length} events from ${url}`);
                 break;
             }
@@ -481,6 +529,7 @@ async function loadData(background = false) {
     statusDot.classList.remove('syncing');
 
     if (success) {
+        updateLastUpdated();
         applyFilters();
     } else {
         console.error('All fetch attempts failed:', lastError);
@@ -495,7 +544,7 @@ async function loadData(background = false) {
                     <i class="fa-solid fa-circle-exclamation" style="font-size: 2.5rem; margin-bottom: 0.5rem; display: block;"></i>
                     データ読み込みに失敗しました。接続を確認してください。
                     <p style="font-size: 0.75rem; margin-top: 0.5rem; color: var(--text-muted);">
-                        エラー詳細: ${lastError ? lastError.message : 'Unknown Network Error'}
+                        エラー詳細: ${escapeHTML(lastError ? lastError.message : 'Unknown Network Error')}
                     </p>
                 </div>
             `;
@@ -540,6 +589,18 @@ function applyFilters() {
         return true;
     });
 
+    if (!state.filteredEvents.some(item => item.eid === state.selectedEventId)) {
+        state.selectedEventId = null;
+    }
+
+    const clearButton = document.getElementById('clear-search');
+    if (clearButton) clearButton.hidden = !searchQuery;
+    const summary = document.getElementById('results-summary');
+    if (summary) {
+        const intensity = minShindoVal ? `・震度${SHINDO_CONFIG[minShindoVal]?.label.replace('震度', '') || minShindoVal}以上` : '';
+        const keyword = searchQuery ? `・「${document.getElementById('search-filter').value.trim()}」` : '';
+        summary.textContent = `${SCOPE_LABELS[state.currentScope]}${intensity}${keyword}: ${state.filteredEvents.length.toLocaleString('ja-JP')}件 / 全${state.allEvents.length.toLocaleString('ja-JP')}件`;
+    }
     renderUI();
 }
 
@@ -591,7 +652,7 @@ function renderKPIs() {
 
     // Render Max Magnitude
     if (maxMagEvent) {
-        document.getElementById('kpi-max-mag').innerHTML = `${maxMagEvent.mag}<span>M</span>`;
+        document.getElementById('kpi-max-mag').innerHTML = `${escapeHTML(maxMagEvent.mag)}<span>M</span>`;
         const loc = maxMagEvent.en_anm || maxMagEvent.anm;
         const timeStr = formatTime(maxMagEvent.at).split(' ')[0];
         document.getElementById('kpi-max-mag-loc').textContent = `${timeStr} @ ${loc.replace(', Kumamoto Prefecture', '')}`;
@@ -604,7 +665,7 @@ function renderKPIs() {
     if (maxShindoEvent) {
         const shindoVal = maxShindoEvent.maxi;
         const shindoColor = SHINDO_CONFIG[shindoVal] ? SHINDO_CONFIG[shindoVal].color : 'var(--text-secondary)';
-        document.getElementById('kpi-max-shindo').innerHTML = `<span style="color: ${shindoColor}">${shindoVal}</span>`;
+        document.getElementById('kpi-max-shindo').innerHTML = `<span style="color: ${shindoColor}">${escapeHTML(shindoVal)}</span>`;
         const loc = maxShindoEvent.en_anm || maxShindoEvent.anm;
         const timeStr = formatTime(maxShindoEvent.at).split(' ')[1].substring(0, 5); // Just HH:mm
         document.getElementById('kpi-max-shindo-time').textContent = `${timeStr} @ ${loc.replace(', Kumamoto Prefecture', '')}`;
@@ -662,19 +723,22 @@ function renderMap() {
         }).addTo(state.map);
 
         // Map popup details (Japanese version)
+        const safeLocation = escapeHTML(item.anm || item.en_anm || '不明');
+        const safeMagnitude = escapeHTML(item.mag || 'なし');
+        const safeShindo = escapeHTML(item.maxi || 'なし');
         const popupContent = `
-            <div class="leaflet-popup-quake-title">${item.anm || item.en_anm}</div>
+            <div class="leaflet-popup-quake-title">${safeLocation}</div>
             <div class="leaflet-popup-quake-row">
                 <span class="label">発生日時:</span>
                 <span class="val">${formatTime(item.at)}</span>
             </div>
             <div class="leaflet-popup-quake-row">
                 <span class="label">規模:</span>
-                <span class="val" style="color: var(--accent-cyan); font-weight: 800;">M ${item.mag || 'なし'}</span>
+                <span class="val" style="color: var(--accent-cyan); font-weight: 800;">M ${safeMagnitude}</span>
             </div>
             <div class="leaflet-popup-quake-row">
                 <span class="label">最大震度:</span>
-                <span class="val" style="color: ${config.color}; font-weight: 800;">${item.maxi || 'なし'}</span>
+                <span class="val" style="color: ${config.color}; font-weight: 800;">${safeShindo}</span>
             </div>
             <div class="leaflet-popup-quake-row">
                 <span class="label">深さ:</span>
@@ -728,25 +792,27 @@ function renderFeed() {
         const isSelected = item.eid === state.selectedEventId ? 'active' : '';
         const shindo = item.maxi;
         const config = SHINDO_CONFIG[shindo] || { color: 'var(--text-muted)', label: 'なし' };
-        const mag = item.mag || 'なし';
+        const mag = escapeHTML(item.mag || 'なし');
         const coords = parseCoordinates(item.cod);
         const depth = coords ? `${coords.depthKm} km` : 'なし';
+        const safeId = escapeHTML(item.eid || '');
+        const safeLocation = escapeHTML(item.anm || item.en_anm || '不明');
 
         return `
-            <div class="event-item ${isSelected}" data-eid="${item.eid}" onclick="selectEvent('${item.eid}', true, 'feed')">
+            <article class="event-item ${isSelected}" data-eid="${safeId}" tabindex="0" role="button" aria-label="${safeLocation}の地震を地図で表示">
                 <div class="event-meta">
                     <span class="event-time">${formatTime(item.at)}</span>
                     <div class="event-badges">
                         <span class="badge badge-mag">M ${mag}</span>
-                        ${shindo ? `<span class="badge badge-shindo" style="background-color: ${config.color}">${shindo}</span>` : ''}
+                        ${shindo ? `<span class="badge badge-shindo" style="background-color: ${config.color}">${escapeHTML(shindo)}</span>` : ''}
                     </div>
                 </div>
-                <div class="event-location">${item.anm || item.en_anm}</div>
+                <div class="event-location">${safeLocation}</div>
                 <div class="event-details">
                     <span>深さ: ${depth}</span>
-                    <span>ID: ${item.eid.substring(4, 12)}</span>
+                    <span>ID: ${safeId.substring(4, 12)}</span>
                 </div>
-            </div>
+            </article>
         `;
     }).join('');
 }
@@ -824,21 +890,23 @@ function renderTable() {
         const shindo = item.maxi;
         const config = SHINDO_CONFIG[shindo] || { color: 'transparent', label: 'なし' };
         const isSelected = item.eid === state.selectedEventId ? 'selected' : '';
+        const safeId = escapeHTML(item.eid || '');
+        const safeLocation = escapeHTML(item.anm || item.en_anm || '不明');
 
         return `
-            <tr class="${isSelected}" data-eid="${item.eid}" onclick="selectEvent('${item.eid}', true, 'table')">
-                <td style="font-weight: 500;">${formatTime(item.at)}</td>
-                <td style="font-weight: 600;">${item.anm || item.en_anm}</td>
-                <td class="text-center" style="font-family: 'Orbitron', sans-serif; font-weight: 700; color: var(--accent-cyan);">M ${item.mag || '--'}</td>
-                <td class="text-center">
-                    ${shindo ? `<span style="background-color: ${config.color}; color: #fff; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-family: 'Orbitron', sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${shindo}</span>` : '--'}
+            <tr class="${isSelected}" data-eid="${safeId}" tabindex="0">
+                <td data-label="発生日時" style="font-weight: 500;">${formatTime(item.at)}</td>
+                <td data-label="震央地名" style="font-weight: 600;">${safeLocation}</td>
+                <td data-label="マグニチュード" class="text-center" style="font-family: 'Orbitron', sans-serif; font-weight: 700; color: var(--accent-cyan);">M ${escapeHTML(item.mag || '--')}</td>
+                <td data-label="最大震度" class="text-center">
+                    ${shindo ? `<span style="background-color: ${config.color}; color: #fff; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-family: 'Orbitron', sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${escapeHTML(shindo)}</span>` : '--'}
                 </td>
-                <td class="text-center" style="font-family: 'Orbitron', sans-serif;">${coords ? coords.depthKm + ' km' : '--'}</td>
-                <td style="color: var(--text-secondary); font-family: monospace; font-size: 0.8rem;">
+                <td data-label="深さ" class="text-center" style="font-family: 'Orbitron', sans-serif;">${coords ? coords.depthKm + ' km' : '--'}</td>
+                <td data-label="震源座標" style="color: var(--text-secondary); font-family: monospace; font-size: 0.8rem;">
                     ${coords ? `${coords.lat.toFixed(3)}°N, ${coords.lon.toFixed(3)}°E` : '--'}
                 </td>
-                <td class="text-center">
-                    <button style="background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.2); color: var(--accent-cyan); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+                <td data-label="地図" class="text-center">
+                    <button type="button" aria-label="${safeLocation}を地図で表示" style="background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.2); color: var(--accent-cyan); padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
                         <i class="fa-solid fa-crosshairs"></i> 表示
                     </button>
                 </td>
@@ -906,7 +974,7 @@ function exportCSV() {
         const coords = parseCoordinates(item.cod);
         return [
             formatTime(item.at),
-            `"${(item.anm || item.en_anm).replace(/"/g, '""')}"`,
+            `"${(item.anm || item.en_anm || '不明').replace(/"/g, '""')}"`,
             item.mag || '',
             item.maxi || '',
             coords ? coords.depthKm : '',
@@ -928,14 +996,57 @@ function exportCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(`${state.filteredEvents.length}件のCSVを保存しました`);
+}
+
+async function sharePage() {
+    const shareData = {
+        title: '熊本県地震活動分析ダッシュボード',
+        text: '熊本県と日本全国の地震活動を地図と統計で確認できます。',
+        url: window.location.href
+    };
+    try {
+        if (navigator.share) {
+            await navigator.share(shareData);
+            return;
+        }
+        await navigator.clipboard.writeText(window.location.href);
+        showToast('ページのURLをコピーしました');
+    } catch (error) {
+        if (error.name !== 'AbortError') showToast('共有できませんでした。URLを手動でコピーしてください');
+    }
+}
+
+function resetFilters() {
+    state.currentScope = 'kumamoto-epicenter';
+    document.getElementById('shindo-filter').value = '';
+    document.getElementById('search-filter').value = '';
+    document.querySelectorAll('.scope-btn').forEach(button => {
+        const active = button.dataset.scope === state.currentScope;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+    applyFilters();
+    showToast('絞り込み条件をリセットしました');
+}
+
+function activateEventElement(element, source) {
+    const eid = element?.getAttribute('data-eid');
+    if (eid) selectEvent(eid, true, source);
 }
 
 // Bind Event Listeners
 function bindEvents() {
-    // Filters
-    
     document.getElementById('shindo-filter').addEventListener('change', applyFilters);
-    document.getElementById('search-filter').addEventListener('input', applyFilters);
+    const searchInput = document.getElementById('search-filter');
+    searchInput.addEventListener('input', debounce(applyFilters));
+    document.getElementById('clear-search').addEventListener('click', () => {
+        searchInput.value = '';
+        searchInput.focus();
+        applyFilters();
+    });
+    document.getElementById('reset-filters').addEventListener('click', resetFilters);
 
     // Scope button selectors
     const scopeButtons = {
@@ -949,10 +1060,14 @@ function bindEvents() {
             button.addEventListener('click', () => {
                 // Remove active classes
                 Object.values(scopeButtons).forEach(btn => {
-                    if (btn) btn.classList.remove('active');
+                    if (btn) {
+                        btn.classList.remove('active');
+                        btn.setAttribute('aria-pressed', 'false');
+                    }
                 });
                 // Add active to current
                 button.classList.add('active');
+                button.setAttribute('aria-pressed', 'true');
                 // Update state & filter
                 state.currentScope = scopeKey;
                 applyFilters();
@@ -962,6 +1077,26 @@ function bindEvents() {
 
     // CSV Export button
     document.getElementById('btn-export').addEventListener('click', exportCSV);
+    document.getElementById('share-btn').addEventListener('click', sharePage);
+
+    document.getElementById('event-feed').addEventListener('click', event => {
+        activateEventElement(event.target.closest('.event-item'), 'feed');
+    });
+    document.getElementById('event-feed').addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activateEventElement(event.target.closest('.event-item'), 'feed');
+        }
+    });
+    document.getElementById('table-body').addEventListener('click', event => {
+        activateEventElement(event.target.closest('tr[data-eid]'), 'table');
+    });
+    document.getElementById('table-body').addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activateEventElement(event.target.closest('tr[data-eid]'), 'table');
+        }
+    });
 
     // Theme Toggle Button
     const themeBtn = document.getElementById('theme-btn');
@@ -993,9 +1128,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         await loadData(false);
     }
 
-    // Live auto-refresh: Automatically poll for new earthquake data every 60 seconds
+    // The repository cache refreshes every 30 minutes; check every five minutes in the browser.
     setInterval(async () => {
         console.log('Performing live background auto-refresh...');
         await loadData(true);
-    }, 60000);
+    }, 300000);
 });

@@ -2,13 +2,33 @@
 <html lang="ja">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=1300">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>熊本県地震活動分析ダッシュボード | Kumamoto Seismic Activity Dashboard</title>
+    <meta name="description" content="気象庁・P2P地震情報のデータをもとに、熊本県と日本全国の地震活動を地図・震度・マグニチュード・地域別統計で確認できるダッシュボードです。">
+    <meta name="theme-color" content="#07111f">
+    <meta name="color-scheme" content="dark light">
+    <link rel="canonical" href="https://ericlin241.github.io/kumamoto-quake/">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="ja_JP">
+    <meta property="og:site_name" content="Kumamoto Quake Analytics">
+    <meta property="og:title" content="熊本県地震活動分析ダッシュボード">
+    <meta property="og:description" content="熊本県と日本全国の地震活動を、地図・震度・マグニチュード・統計でわかりやすく確認。">
+    <meta property="og:url" content="https://ericlin241.github.io/kumamoto-quake/">
+    <meta property="og:image" content="https://ericlin241.github.io/kumamoto-quake/assets/og-kumamoto-quake.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Kumamoto Quake Analytics dashboard preview">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="熊本県地震活動分析ダッシュボード">
+    <meta name="twitter:description" content="熊本県と日本全国の地震活動を地図と統計で確認。">
+    <meta name="twitter:image" content="https://ericlin241.github.io/kumamoto-quake/assets/og-kumamoto-quake.jpg">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Orbitron:wght@400;600;800;900&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -37,40 +57,56 @@
     </script>
 </head>
 <body>
+    <a class="skip-link" href="#main-content">メインコンテンツへ移動</a>
     <header>
         <div class="brand">
             <i class="fa-solid fa-house-crack"></i>
             <div>
                 <h1>KUMAMOTO QUAKE ANALYTICS</h1>
-                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px;">熊本県および周辺地域における地震活動の観測・統計ダッシュボード</p>
+                <p>熊本県および周辺地域における地震活動の観測・統計ダッシュボード</p>
             </div>
         </div>
         
         <div class="sync-status">
-            <div class="status-indicator">
+            <div class="status-indicator" role="status" aria-live="polite">
                 <div class="status-dot" id="status-dot"></div>
                 <span id="sync-text">データ読込中...</span>
             </div>
-            <button class="btn-theme" id="theme-btn" title="クリックしてテーマを変更します（自動 → ライト → ダーク）">
+            <button class="btn-icon" id="share-btn" type="button" title="このページを共有" aria-label="このページを共有">
+                <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                <span>共有</span>
+            </button>
+            <button class="btn-theme" id="theme-btn" type="button" title="クリックしてテーマを変更します（自動 → ライト → ダーク）">
                 <i class="fa-solid fa-circle-half-stroke"></i>
                 <span id="theme-text">テーマ: 自動</span>
             </button>
         </div>
     </header>
     
-    <main>
+    <main id="main-content">
+        <section class="dashboard-intro" aria-labelledby="intro-title">
+            <div>
+                <span class="eyebrow">LIVE SEISMIC OVERVIEW</span>
+                <h2 id="intro-title">熊本の揺れを、地図とデータで読み解く。</h2>
+                <p>震央・熊本県内の観測震度・全国の地震情報を切り替えて比較できます。</p>
+            </div>
+            <div class="intro-meta">
+                <span><i class="fa-regular fa-clock" aria-hidden="true"></i> 最終取得</span>
+                <strong id="last-updated">確認中...</strong>
+            </div>
+        </section>
         <!-- Interactive Controls -->
-        <section class="controls-card">
+        <section class="controls-card" aria-label="地震データの絞り込み">
             <div class="control-group">
-                <label>分析範囲 (Scope)</label>
-                <div class="scope-selector">
-                    <button class="scope-btn active" data-scope="kumamoto-epicenter" id="scope-epi">
+                <label id="scope-label">分析範囲 (Scope)</label>
+                <div class="scope-selector" role="group" aria-labelledby="scope-label">
+                    <button class="scope-btn active" data-scope="kumamoto-epicenter" id="scope-epi" type="button" aria-pressed="true">
                         熊本震源 <span style="font-size: 0.7rem; font-weight: normal; display: block; opacity: 0.8;">Epicenter</span>
                     </button>
-                    <button class="scope-btn" data-scope="kumamoto-felt" id="scope-felt">
+                    <button class="scope-btn" data-scope="kumamoto-felt" id="scope-felt" type="button" aria-pressed="false">
                         熊本有感 <span style="font-size: 0.7rem; font-weight: normal; display: block; opacity: 0.8;">Felt in Kumamoto</span>
                     </button>
-                    <button class="scope-btn" data-scope="japan-all" id="scope-all">
+                    <button class="scope-btn" data-scope="japan-all" id="scope-all" type="button" aria-pressed="false">
                         日本全国 <span style="font-size: 0.7rem; font-weight: normal; display: block; opacity: 0.8;">All Japan</span>
                     </button>
                 </div>
@@ -78,7 +114,7 @@
             
             
             <div class="control-group">
-                <label>最小震度 (Min Intensity)</label>
+                <label for="shindo-filter">最小震度 (Min Intensity)</label>
                 <select id="shindo-filter">
                     <option value="">すべての震度</option>
                     <option value="1">震度 1 以上</option>
@@ -93,14 +129,18 @@
                 </select>
             </div>
             
-            <div class="control-group" style="flex: 1.5;">
-                <label>震央名の検索 (Search Location)</label>
-                <div style="position: relative; display: flex; align-items: center;">
-                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; color: var(--text-muted); font-size: 0.9rem;"></i>
-                    <input type="text" id="search-filter" placeholder="震央名で絞り込み (例: 熊本、阿蘇、天草...)">
+            <div class="control-group search-group">
+                <label for="search-filter">震央名の検索 (Search Location)</label>
+                <div class="search-field">
+                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" id="search-filter" placeholder="例: 熊本、阿蘇、天草..." autocomplete="off">
+                    <button id="clear-search" class="clear-search" type="button" aria-label="検索文字を消去" hidden><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
                 </div>
             </div>
+            <button class="btn-reset" id="reset-filters" type="button"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i> 条件をリセット</button>
         </section>
+
+        <div class="results-summary" id="results-summary" role="status" aria-live="polite">データを読み込んでいます...</div>
         
         <!-- Statistics Summary Grid -->
         <section class="stats-grid">
@@ -147,16 +187,16 @@
             <div class="panel-card">
                 <div class="panel-header">
                     <h2><i class="fa-solid fa-map-location-dot"></i> 震央分布マップ / Earthquake Epicenter Map</h2>
-                    <span style="font-size: 0.75rem; color: var(--text-muted);">円の半径はマグニチュード (M)、色は最大震度を示します</span>
+                    <span class="panel-note">円の大きさ = M ／ 色 = 最大震度</span>
                 </div>
-                <div class="map-container" id="map"></div>
+                <div class="map-container" id="map" role="application" aria-label="地震の震央分布地図"></div>
             </div>
             
             <!-- Real-time Event Feed -->
             <div class="panel-card">
                 <div class="panel-header">
                     <h2><i class="fa-solid fa-rss"></i> リアルタイム地震速報 / Event Feed</h2>
-                    <span id="feed-count" style="font-size: 0.75rem; color: var(--text-secondary); background: rgba(255, 255, 255, 0.05); padding: 0.15rem 0.4rem; border-radius: 4px;">0 件</span>
+                    <span id="feed-count" class="count-pill">0 件</span>
                 </div>
                 <div class="feed-container">
                     <div class="event-feed-list" id="event-feed">
@@ -195,7 +235,7 @@
         <section class="panel-card table-panel">
             <div class="panel-header">
                 <h2><i class="fa-solid fa-table-list"></i> 地震観測データ一覧 / Seismic Data Table</h2>
-                <button class="btn-csv" id="btn-export">
+                <button class="btn-csv" id="btn-export" type="button">
                     <i class="fa-solid fa-file-csv"></i> CSV形式でエクスポート
                 </button>
             </div>
@@ -225,9 +265,13 @@
         </section>
     </main>
     
-    <footer style="max-width: 1600px; margin: 0 auto; padding: 0 1.5rem; margin-top: 1rem; display: flex; justify-content: center; align-items: center; font-size: 0.8rem; color: var(--text-muted);">
-        <p>© 2026 熊本県地震活動分析ダッシュボード. データ元: 気象庁 (JMA) / P2P地震情報 API</p>
+    <footer>
+        <p>© 2026 熊本県地震活動分析ダッシュボード</p>
+        <p>データ元: <a href="https://www.jma.go.jp/bosai/quake/" target="_blank" rel="noopener noreferrer">気象庁 (JMA)</a> / <a href="https://www.p2pquake.net/" target="_blank" rel="noopener noreferrer">P2P地震情報</a></p>
+        <p class="disclaimer">本サイトは防災行動の判断を代替するものではありません。緊急時は公的機関の最新情報をご確認ください。</p>
     </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
     <!-- Static cache script for offline and local protocol compatibility -->
     <script src="quake_data.js"></script>
